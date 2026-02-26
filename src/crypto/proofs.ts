@@ -1,4 +1,6 @@
 import { CacheProvider } from "../cache/CacheProvider";
+import { SnarkjsProofGenerator } from "./SnarkjsProofGenerator";
+import { ProofPayload, ProofGeneratorConfig } from "./IProofGenerator";
 
 /**
  * Witness data for ZK proof generation.
@@ -14,7 +16,7 @@ export interface ProofWitness {
  * Derives a stable cache key from the proof witness.
  * Handles bigint values so common witness fields (e.g. amount) are serializable.
  */
-function witnessKey(witness: ProofWitness): string {
+function witnessKey(witness: Record<string, unknown> | ProofWitness): string {
   return `proof:${JSON.stringify(witness, (_, value) =>
     typeof value === "bigint" ? value.toString() : value
   )}`;
@@ -28,6 +30,10 @@ function base64ToUint8Array(str: string): Uint8Array {
   return new Uint8Array(Buffer.from(str, "base64"));
 }
 
+/**
+ * Legacy ZKProofGenerator for backward compatibility.
+ * For production use, prefer SnarkjsProofGenerator with proper circuit configuration.
+ */
 export class ZKProofGenerator {
   /**
    * Generates a ZK proof for the given witness.
@@ -36,9 +42,10 @@ export class ZKProofGenerator {
    *
    * @param witness  - Circuit inputs (recipient, amount, etc.)
    * @param cache    - Optional cache provider (MemoryCacheProvider or LocalStorageCacheProvider)
+   * @deprecated Use SnarkjsProofGenerator for real proof generation
    */
   static async generateProof(
-    witness: ProofWitness,
+    witness: Record<string, unknown> | ProofWitness,
     cache?: CacheProvider<string>
   ): Promise<Uint8Array> {
     if (cache) {
@@ -56,5 +63,35 @@ export class ZKProofGenerator {
 
     // Proof generation without caching.
     return new Uint8Array(32);
+  }
+  /**
+   * Creates a configured SnarkjsProofGenerator instance.
+   *
+   * @param config - Circuit artifact URLs and cache settings
+   * @param cache - Optional cache provider for proof results
+   * @returns Configured proof generator ready for use
+   */
+  static createSnarkjsGenerator(
+    config: ProofGeneratorConfig,
+    cache?: CacheProvider<string>
+  ): SnarkjsProofGenerator {
+    return new SnarkjsProofGenerator(config, cache);
+  }
+
+  /**
+   * Generates a real ZK proof using snarkjs with the provided configuration.
+   *
+   * @param witness - Circuit inputs
+   * @param config - Circuit artifact configuration
+   * @param cache - Optional cache provider
+   * @returns ProofPayload ready for contract verification
+   */
+  static async generateSnarkjsProof(
+    witness: Record<string, unknown>,
+    config: ProofGeneratorConfig,
+    cache?: CacheProvider<string>
+  ): Promise<ProofPayload> {
+    const generator = new SnarkjsProofGenerator(config, cache);
+    return generator.generateProof(witness);
   }
 }
